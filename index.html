@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Отжимания с вебкамерой</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+  <style>
+    body { text-align: center; font-family: sans-serif; }
+    canvas { position: absolute; left: 0; top: 0; }
+    video { transform: scaleX(-1); } /* Зеркальное отображение */
+    #output { margin-top: 10px; font-size: 18px; }
+  </style>
+</head>
+<body>
+  <h1>Счётчик отжиманий (MoveNet)</h1>
+  <input type="text" id="username" placeholder="Имя" />
+  <button onclick="start()">Старт</button>
+  <button onclick="stop()">Стоп</button>
+  <button onclick="decryptReport()">Расшифровать отчёт</button>
+  <div id="output">Ожидание старта...</div>
+  <video id="video" width="640" height="480" autoplay muted playsinline></video>
+  <canvas id="canvas" width="640" height="480"></canvas>
+
+  <script>
+    const adminPassword = 'admin123';
+    let detector, video, canvas, ctx;
+    let reps = 0, down = false;
+    let startTime;
+    let running = false;
+
+    async function setupCamera() {
+      video = document.getElementById('video');
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+      return new Promise(resolve => video.onloadedmetadata = resolve);
+    }
+
+    async function loadModel() {
+      detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
+    }
+
+    function drawKeypoints(keypoints) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      keypoints.forEach(kp => {
+        if (kp.score > 0.5) {
+          ctx.beginPath();
+          ctx.arc(kp.x, kp.y, 5, 0, 2 * Math.PI);
+          ctx.fillStyle = "red";
+          ctx.fill();
+        }
+      });
+    }
+
+    function getAngle(a, b, c) {
+      const ab = [a.x - b.x, a.y - b.y];
+      const cb = [c.x - b.x, c.y - b.y];
+      const dot = ab[0] * cb[0] + ab[1] * cb[1];
+      const magAB = Math.hypot(...ab);
+      const magCB = Math.hypot(...cb);
+      return Math.acos(dot / (magAB * magCB)) * (180 / Math.PI);
+    }
+
+    async function detectPose() {
+      if (!running) return;
+
+      const poses = await detector.estimatePoses(video);
+      if (poses.length > 0) {
+        const kp = poses[0].keypoints;
+
+        const shoulder = kp[6]; // левое плечо
+        const elbow = kp[8];    // левый локоть
+        const wrist = kp[10];   // левое запястье
+
+        drawKeypoints(kp);
+
+        if (shoulder.score > 0.5 && elbow.score > 0.5 && wrist.score > 0.5) {
+          const angle = getAngle(shoulder, elbow, wrist);
+
+          // Простой фильтр — если согнули сильно (ниже 90), считаем вниз
+          if (angle < 90 && !down) {
+            down = true;
+          }
+
+          // Выпрямились — считаем повтор
+          if (angle > 160 && down) {
+            reps++;
+            document.getElementById('output').innerText = `Повторений: ${reps}`;
+            down = false;
+          }
+        } else {
+          document.getElementById('output').innerText = "Неправильная техника";
+        }
+      }
+
+      requestAnimationFrame(detectPose);
+    }
+
+    async function start() {
+      reps = 0;
+      running = true;
+      startTime = new Date();
+      await setupCamera();
+      await loadModel();
+      canvas = document.getElementById('canvas');
+      ctx = canvas.getContext('2d');
+      detectPose();
+    }
+
+    function stop() {
+      running = false;
+      const endTime = new Date();
+      const duration = Math.floor((endTime - startTime) / 1000);
+      const username = document.getElementById('username').value || "Неизвестный";
+      const report = {
+        имя: username,
+        упражнение: "отжимания",
+        время_начала: startTime.toLocaleString(),
+        потрачено_секунд: duration,
+        повторений: reps
+      };
+      const reportJSON = JSON.stringify(report);
+      const encrypted = CryptoJS.AES.encrypt(reportJSON, adminPassword).toString();
+      localStorage.setItem('encryptedReport', encrypted);
+      document.getElementById('output').innerText = `Завершено. Повторений: ${reps}`;
+    }
+
+    function decryptReport() {
+      const password = prompt("Введите пароль администратора:");
+      if (password !== adminPassword) {
+        alert("Неверный пароль!");
+        return;
+      }
+
+      const encrypted = localStorage.getItem("encryptedReport");
+      if (!encrypted) {
+        alert("Нет сохранённого отчёта.");
+        return;
+      }
+
+      try {
+        const bytes = CryptoJS.AES.decrypt(encrypted, password);
+        const decrypted = JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
+        alert("Отчёт:\n" + JSON.stringify(decrypted, null, 2));
+      } catch (e) {
+        alert("Ошибка расшифровки");
+      }
+    }
+  </script>
+</body>
+</html>
