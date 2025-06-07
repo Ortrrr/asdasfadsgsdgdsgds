@@ -22,8 +22,8 @@
   <div id="controls">
     <input type="text" id="username" placeholder="Введите имя" />
     <br>
-    <button onclick="start()">Старт</button>
-    <button onclick="stop()">Стоп</button>
+    <button onclick="startExercise()">Старт</button>
+    <button onclick="stopExercise()">Стоп</button>
     <button onclick="downloadReport()">Скачать отчёт</button>
     <input type="file" id="upload" onchange="uploadReport()" accept=".json,.enc,.txt" />
     <button onclick="decryptReport()">Расшифровать локальный отчёт</button>
@@ -104,7 +104,7 @@
       requestAnimationFrame(detectPose);
     }
 
-    async function start() {
+    async function startExercise() {
       reps = 0;
       running = true;
       startTime = new Date();
@@ -115,7 +115,7 @@
       detectPose();
     }
 
-    function stop() {
+    function stopExercise() {
       running = false;
       const endTime = new Date();
       const duration = Math.floor((endTime - startTime) / 1000);
