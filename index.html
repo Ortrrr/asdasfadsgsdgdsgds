@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Отжимания с вебкамерой</title>
+  <title>Счётчик отжиманий с вебкамерой</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
@@ -10,20 +10,27 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
   <style>
     body { text-align: center; font-family: sans-serif; }
-    canvas { position: absolute; left: 0; top: 0; }
-    video { transform: scaleX(-1); } /* Зеркальное отображение */
+    video, canvas { width: 640px; height: 480px; }
+    canvas { position: absolute; top: 0; left: 0; z-index: 1; }
+    video { transform: scaleX(-1); position: relative; z-index: 0; }
     #output { margin-top: 10px; font-size: 18px; }
+    #controls button, input { margin: 5px; padding: 10px; font-size: 16px; }
   </style>
 </head>
 <body>
-  <h1>Счётчик отжиманий (MoveNet)</h1>
-  <input type="text" id="username" placeholder="Имя" />
-  <button onclick="start()">Старт</button>
-  <button onclick="stop()">Стоп</button>
-  <button onclick="decryptReport()">Расшифровать отчёт</button>
+  <h1>Счётчик отжиманий (с вебкамерой)</h1>
+  <div id="controls">
+    <input type="text" id="username" placeholder="Введите имя" />
+    <br>
+    <button onclick="start()">Старт</button>
+    <button onclick="stop()">Стоп</button>
+    <button onclick="downloadReport()">Скачать отчёт</button>
+    <input type="file" id="upload" onchange="uploadReport()" accept=".json,.enc,.txt" />
+    <button onclick="decryptReport()">Расшифровать локальный отчёт</button>
+  </div>
   <div id="output">Ожидание старта...</div>
-  <video id="video" width="640" height="480" autoplay muted playsinline></video>
-  <canvas id="canvas" width="640" height="480"></canvas>
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="canvas"></canvas>
 
   <script>
     const adminPassword = 'admin123';
@@ -80,12 +87,10 @@
         if (shoulder.score > 0.5 && elbow.score > 0.5 && wrist.score > 0.5) {
           const angle = getAngle(shoulder, elbow, wrist);
 
-          // Простой фильтр — если согнули сильно (ниже 90), считаем вниз
           if (angle < 90 && !down) {
             down = true;
           }
 
-          // Выпрямились — считаем повтор
           if (angle > 160 && down) {
             reps++;
             document.getElementById('output').innerText = `Повторений: ${reps}`;
@@ -128,25 +133,65 @@
       document.getElementById('output').innerText = `Завершено. Повторений: ${reps}`;
     }
 
-    function decryptReport() {
-      const password = prompt("Введите пароль администратора:");
-      if (password !== adminPassword) {
-        alert("Неверный пароль!");
+    function downloadReport() {
+      const encrypted = localStorage.getItem('encryptedReport');
+      if (!encrypted) {
+        alert('Сначала завершите упражнение!');
         return;
       }
 
-      const encrypted = localStorage.getItem("encryptedReport");
-      if (!encrypted) {
-        alert("Нет сохранённого отчёта.");
+      const blob = new Blob([encrypted], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'otchet.enc.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function uploadReport() {
+      const fileInput = document.getElementById('upload');
+      const file = fileInput.files[0];
+      if (!file) {
+        alert('Файл не выбран.');
         return;
       }
+
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const encrypted = e.target.result;
+        const password = prompt('Введите пароль администратора:');
+        if (!password) return;
+
+        try {
+          const bytes = CryptoJS.AES.decrypt(encrypted, password);
+          const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+          const report = JSON.parse(decrypted);
+          alert("Загруженный отчёт:\n" + JSON.stringify(report, null, 2));
+        } catch (e) {
+          alert('Ошибка: неверный файл или пароль.');
+        }
+      };
+
+      reader.readAsText(file);
+    }
+
+    function decryptReport() {
+      const encrypted = localStorage.getItem("encryptedReport");
+      if (!encrypted) {
+        alert("Отчёт не найден.");
+        return;
+      }
+
+      const password = prompt("Введите пароль администратора:");
+      if (!password) return;
 
       try {
         const bytes = CryptoJS.AES.decrypt(encrypted, password);
         const decrypted = JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
         alert("Отчёт:\n" + JSON.stringify(decrypted, null, 2));
       } catch (e) {
-        alert("Ошибка расшифровки");
+        alert("Ошибка расшифровки.");
       }
     }
   </script>
